@@ -61,7 +61,7 @@ aside.panel{background:var(--surface);border:1px solid var(--line);border-radius
 .seg button{border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);padding:8px 6px;font:500 .85rem var(--f-body);cursor:pointer}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
-.modes{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .mode{border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 2px 5px;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:4px;font:500 .72rem var(--f-body)}
 .mode canvas{width:100%;max-width:44px;aspect-ratio:3/4;border-radius:3px;background:#fff;display:block}
 .mode[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;color:var(--accent)}
@@ -109,11 +109,14 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
 .page figcaption{font:400 .74rem var(--f-mono);color:var(--muted);display:flex;justify-content:space-between}
 .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:40px 10px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:.88rem;max-width:min(92vw,520px);box-shadow:var(--shadow);z-index:20}
-.ready{position:fixed;inset:0;z-index:30;background:rgba(10,16,24,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
-.ready-box{background:var(--surface);color:var(--ink);border-radius:14px;padding:18px;width:min(460px,100%);display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow)}
-.ready-box strong{font:700 1.15rem var(--f-display)}
-.ready-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.ready-actions .btn{flex:1 1 auto}
+.viewer{position:fixed;inset:0;z-index:30;background:var(--table);display:flex;flex-direction:column}
+.vbar{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+.vtitle{display:flex;flex-direction:column;min-width:0}
+.vtitle strong{font:700 1.05rem var(--f-display)}
+.vpages{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;align-items:center;gap:16px;-webkit-overflow-scrolling:touch}
+.vpages canvas{max-width:100%;height:auto;background:var(--paper);box-shadow:var(--shadow);display:block}
+.vactions{display:flex;gap:10px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}
+.vactions .btn{flex:1}
 .a2hs{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:25;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:.88rem;box-shadow:var(--shadow)}
 .a2hs span{flex:1}
 .a2hs .ico{color:var(--bg);border-color:transparent}
@@ -150,7 +153,6 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
       <div class="sec">
         <h2>Scan look <output id="modeOut">Color scan</output></h2>
         <div class="modes" id="modes"></div>
-        <div class="row"><label for="strength" style="min-width:62px">Strength</label><input id="strength" type="range" min="0" max="100" value="50"><output id="strOut" class="stats" style="min-width:30px;text-align:right">50</output></div>
         <label class="check"><input type="checkbox" id="autoCrop"> Find the paper, crop off the table</label>
         <p class="hint">Applies to every photo. Override one photo from its card.</p>
       </div>
@@ -215,12 +217,13 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
 
 <div class="mbar"><div class="stats" id="mstats">—</div><button class="btn primary" id="mExportBtn">Create PDF</button></div>
 <div class="toast" id="toast" hidden></div>
-<div class="ready" id="ready" hidden role="dialog" aria-labelledby="readyTitle">
-  <div class="ready-box">
-    <strong id="readyTitle">PDF ready</strong>
-    <span class="stats" id="readyInfo"></span>
-    <div class="ready-actions"><button class="btn primary" id="shareBtn">Save or share</button><button class="btn" id="openBtn">Open</button><button class="btn ghost" id="readyClose">Close</button></div>
+<div class="viewer" id="ready" hidden role="dialog" aria-labelledby="readyTitle">
+  <div class="vbar">
+    <button class="btn ghost" id="readyClose" aria-label="Back to editing">‹ Back</button>
+    <div class="vtitle"><strong id="readyTitle">PDF ready</strong><span class="stats" id="readyInfo"></span></div>
   </div>
+  <div class="vpages" id="vpages"></div>
+  <div class="vactions"><button class="btn" id="saveBtn">Save</button><button class="btn primary" id="shareBtn">Share</button></div>
 </div>
 <div class="a2hs" id="a2hs" hidden><span>Use it like an app: tap <b>Share</b> then <b>Add to Home Screen</b>.</span><button class="ico" id="a2hsClose" aria-label="Dismiss">✕</button></div>
 
@@ -234,8 +237,7 @@ const PAGE = {letter:[612,792], a4:[595.28,841.89], legal:[612,1008], a5:[419.53
 const PRESETS = {1:[1,1],2:[1,2],3:[1,3],4:[2,2],6:[2,3],8:[2,4],9:[3,3],12:[3,4],16:[4,4]};
 const MODES = [
   {v:'original', name:'Original'},
-  {v:'photo', name:'Vivid'},
-  {v:'scan', name:'Color scan'},
+  {v:'scan', name:'Color'},
   {v:'gray', name:'Grayscale'},
   {v:'bw', name:'B & W'}
 ];
@@ -246,103 +248,165 @@ const SRC_MAX = TOUCH ? 2400 : 3200; // phones have tighter canvas memory
 
 const usLike = /^en-(US|CA)|^es-(US|MX)/i.test(navigator.language || '');
 const defaults = {perPage:4, custom:false, cols:2, rows:2, size: usLike ? 'letter' : 'a4', orient:'portrait',
-  margin:10, gap:5, fit:'contain', autoRotate:true, cutLines:false, captions:false, mode:'scan', strength:50, autoCrop:true, quality:'standard', filename:'photos'};
+  margin:10, gap:5, fit:'contain', autoRotate:true, cutLines:false, captions:false, mode:'scan', autoCrop:true, quality:'standard', filename:'photos'};
 let state = {...defaults};
 try { const s = JSON.parse(localStorage.getItem('gridscan.settings') || 'null'); if (s) state = {...defaults, ...s}; } catch (e) {}
+if (!MODES.some(m => m.v === state.mode)) state.mode = 'scan';
+delete state.strength;
 const persist = () => { try { localStorage.setItem('gridscan.settings', JSON.stringify(state)); } catch (e) {} };
 
 let items = []; // {id, name, src (canvas), rot, mode|null, sample, cache: Map}
 let uid = 0;
 
 /* ---------- image processing ---------- */
-function maxFilter(a, w, h, r) {
-  const t = new Uint8ClampedArray(a.length), o = new Uint8ClampedArray(a.length);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) {
-    let m = 0;
-    for (let d = -r; d <= r; d++) { const xx = Math.min(w - 1, Math.max(0, x + d)); const v = a[(y * w + xx) * 4 + c]; if (v > m) m = v; }
-    t[(y * w + x) * 4 + c] = m;
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { for (let c = 0; c < 3; c++) {
-    let m = 0;
-    for (let d = -r; d <= r; d++) { const yy = Math.min(h - 1, Math.max(0, y + d)); const v = t[(yy * w + x) * 4 + c]; if (v > m) m = v; }
-    o[(y * w + x) * 4 + c] = m;
-  } o[(y * w + x) * 4 + 3] = 255; }
+// Box filter (radius r, clamped edges) on a small single-channel grid.
+function boxF(a, w, h, r) {
+  const t = new Float32Array(a.length), o = new Float32Array(a.length);
+  for (let y = 0; y < h; y++) { const row = y * w; let s = 0;
+    for (let x = -r; x <= r; x++) s += a[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) { t[row + x] = s / (2 * r + 1); s += a[row + Math.min(w - 1, x + r + 1)] - a[row + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++) { let s = 0;
+    for (let y = -r; y <= r; y++) s += t[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) { o[y * w + x] = s / (2 * r + 1); s += t[Math.min(h - 1, y + r + 1) * w + x] - t[Math.max(0, y - r) * w + x]; } }
   return o;
 }
-function boxBlur(a, w, h, r) {
-  const t = new Float32Array(a.length), o = new Uint8ClampedArray(a.length);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) {
-    let s = 0, n = 0;
-    for (let d = -r; d <= r; d++) { const xx = x + d; if (xx < 0 || xx >= w) continue; s += a[(y * w + xx) * 4 + c]; n++; }
-    t[(y * w + x) * 4 + c] = s / n;
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { for (let c = 0; c < 3; c++) {
-    let s = 0, n = 0;
-    for (let d = -r; d <= r; d++) { const yy = y + d; if (yy < 0 || yy >= h) continue; s += t[(yy * w + x) * 4 + c]; n++; }
-    o[(y * w + x) * 4 + c] = s / n;
-  } o[(y * w + x) * 4 + 3] = 255; }
-  return o;
-}
-// Paper illumination map: shrink, dilate away dark ink, blur, scale back up.
+// Paper illumination map. On a ~96 px copy, pick pixels that look like paper (bright for their area and
+// nearly colorless), then fill every other spot from the nearest paper around it (normalized convolution at
+// growing radii). Large drawings, photos and colored areas are never mistaken for paper and washed out.
 function background(cv) {
-  const w = cv.width, h = cv.height;
-  const sw = Math.max(6, Math.round(w / 20)), sh = Math.max(6, Math.round(h / 20));
+  const w = cv.width, h = cv.height, k = 96 / Math.max(w, h);
+  const sw = Math.max(8, Math.round(w * k)), sh = Math.max(8, Math.round(h * k)), sn = sw * sh;
   const s = document.createElement('canvas'); s.width = sw; s.height = sh;
   const sx = s.getContext('2d', {willReadFrequently: true}); sx.imageSmoothingQuality = 'high';
   sx.drawImage(cv, 0, 0, sw, sh);
-  const im = sx.getImageData(0, 0, sw, sh);
-  let a = maxFilter(im.data, sw, sh, 2);
-  a = boxBlur(a, sw, sh, 2);
-  im.data.set(a); sx.putImageData(im, 0, 0);
+  const im = sx.getImageData(0, 0, sw, sh), a = im.data;
+  const R = new Float32Array(sn), G = new Float32Array(sn), B = new Float32Array(sn), Lm = new Float32Array(sn);
+  for (let p = 0; p < sn; p++) { R[p] = a[p * 4]; G[p] = a[p * 4 + 1]; B[p] = a[p * 4 + 2]; Lm[p] = 0.299 * R[p] + 0.587 * G[p] + 0.114 * B[p]; }
+  const near = new Float32Array(sn), rr = 3; // brightest value nearby
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) { let m = 0;
+    for (let dy = -rr; dy <= rr; dy++) { const yy = Math.min(sh - 1, Math.max(0, y + dy)) * sw;
+      for (let dx = -rr; dx <= rr; dx++) { const v = Lm[yy + Math.min(sw - 1, Math.max(0, x + dx))]; if (v > m) m = v; } }
+    near[y * sw + x] = m; }
+  const M = new Float32Array(sn); let any = 0;
+  for (let p = 0; p < sn; p++) {
+    const mx = Math.max(R[p], G[p], B[p]), mn = Math.min(R[p], G[p], B[p]), sat = mx ? (mx - mn) / mx : 1;
+    if (Lm[p] >= 0.84 * near[p] && sat < 0.24 && Lm[p] > 40) { M[p] = 1; any++; }
+  }
+  const out = new Float32Array(sn * 3);
+  if (any < sn * 0.02) { // no paper found: fall back to the brightest neutral level
+    let top = 0; for (let p = 0; p < sn; p++) top = Math.max(top, Lm[p]);
+    for (let p = 0; p < sn; p++) out[p * 3] = out[p * 3 + 1] = out[p * 3 + 2] = top;
+  } else {
+    const done = new Uint8Array(sn), mR = new Float32Array(sn), mG = new Float32Array(sn), mB = new Float32Array(sn);
+    for (let p = 0; p < sn; p++) { mR[p] = R[p] * M[p]; mG[p] = G[p] * M[p]; mB[p] = B[p] * M[p]; }
+    for (const r of [2, 4, 8, 16, 32, 64]) {
+      const W = boxF(M, sw, sh, r), CR = boxF(mR, sw, sh, r), CG = boxF(mG, sw, sh, r), CB = boxF(mB, sw, sh, r);
+      for (let p = 0; p < sn; p++) if (!done[p] && (W[p] > 0.12 || r === 64)) {
+        const wt = Math.max(W[p], 1e-4); out[p * 3] = CR[p] / wt; out[p * 3 + 1] = CG[p] / wt; out[p * 3 + 2] = CB[p] / wt; done[p] = 1;
+      }
+    }
+  }
+  const o0 = new Float32Array(sn), o1 = new Float32Array(sn), o2 = new Float32Array(sn);
+  for (let p = 0; p < sn; p++) { o0[p] = out[p * 3]; o1[p] = out[p * 3 + 1]; o2[p] = out[p * 3 + 2]; }
+  const s0 = boxF(o0, sw, sh, 1), s1 = boxF(o1, sw, sh, 1), s2 = boxF(o2, sw, sh, 1);
+  for (let p = 0; p < sn; p++) { a[p * 4] = s0[p]; a[p * 4 + 1] = s1[p]; a[p * 4 + 2] = s2[p]; a[p * 4 + 3] = 255; }
+  sx.putImageData(im, 0, 0);
   const b = document.createElement('canvas'); b.width = w; b.height = h;
   const bx = b.getContext('2d', {willReadFrequently: true}); bx.imageSmoothingQuality = 'high';
   bx.drawImage(s, 0, 0, w, h);
   return bx.getImageData(0, 0, w, h).data;
 }
-function applyMode(cv, mode, strength) {
+// Tone curve applied to pixel ÷ paper ratio (1.0 = paper). Paper and anything close to it goes pure white;
+// ink keeps its gray anti-aliasing instead of being clipped, which is what makes scans look natural.
+const TONE = (() => {
+  const lut = new Uint8ClampedArray(1024), wp = 0.9;
+  for (let q = 0; q < 1024; q++) {
+    let u = Math.min(1, (q / 512) / wp);
+    u = Math.pow(u, 1.35);                 // darken ink and mid-tones a little
+    u = Math.max(0, (u - 0.04) / 0.96);    // gentle black point
+    lut[q] = u * 255;
+  }
+  return lut;
+})();
+const toneOf = (c, b) => TONE[Math.min(1023, (c * 512 / Math.max(b, 20)) | 0)];
+const TONE_C = (() => { // color pages: lighter touch so pale colors are not blown out
+  const lut = new Uint8ClampedArray(1024);
+  for (let q = 0; q < 1024; q++) { let u = Math.min(1, (q / 512) / 0.94); u = Math.pow(u, 1.15); lut[q] = Math.max(0, (u - 0.03) / 0.97) * 255; }
+  return lut;
+})();
+const toneC = (c, b) => TONE_C[Math.min(1023, (c * 512 / Math.max(b, 20)) | 0)];
+function blur1(L, w, h) { // 3×3 box blur, used for unsharp masking
+  const t = new Float32Array(L.length), o = new Float32Array(L.length);
+  for (let y = 0; y < h; y++) { const r = y * w; for (let x = 0; x < w; x++) { const a = L[r + Math.max(0, x - 1)], b = L[r + x], c = L[r + Math.min(w - 1, x + 1)]; t[r + x] = (a + b + c) / 3; } }
+  for (let y = 0; y < h; y++) { const u = Math.max(0, y - 1) * w, m = y * w, dn = Math.min(h - 1, y + 1) * w; for (let x = 0; x < w; x++) o[m + x] = (t[u + x] + t[m + x] + t[dn + x]) / 3; }
+  return o;
+}
+// Local mean and spread on a 1/4-scale grid (cheap enough for phones), sampled back with bilinear interpolation.
+function localStats(S, w, h) {
+  const f = 4, sw = Math.ceil(w / f), sh = Math.ceil(h / f), sn = sw * sh;
+  let m1 = new Float32Array(sn), m2 = new Float32Array(sn); const cnt = new Float32Array(sn);
+  for (let y = 0; y < h; y++) { const sy = (y / f | 0) * sw; for (let x = 0; x < w; x++) { const v = S[y * w + x], k = sy + (x / f | 0); m1[k] += v; m2[k] += v * v; cnt[k]++; } }
+  for (let k = 0; k < sn; k++) { m1[k] /= cnt[k]; m2[k] /= cnt[k]; }
+  const rad = Math.max(3, Math.round(Math.min(sw, sh) / 24));
+  const box = a => {
+    const t = new Float32Array(sn), o = new Float32Array(sn);
+    for (let y = 0; y < sh; y++) { let s = 0, n = 0; const r = y * sw;
+      for (let x = -rad; x < sw; x++) { const add = x + rad, sub = x - rad - 1;
+        if (add < sw) { s += a[r + add]; n++; } if (sub >= 0) { s -= a[r + sub]; n--; } if (x >= 0) t[r + x] = s / n; } }
+    for (let x = 0; x < sw; x++) { let s = 0, n = 0;
+      for (let y = -rad; y < sh; y++) { const add = y + rad, sub = y - rad - 1;
+        if (add < sh) { s += t[add * sw + x]; n++; } if (sub >= 0) { s -= t[sub * sw + x]; n--; } if (y >= 0) o[y * sw + x] = s / n; } }
+    return o;
+  };
+  m1 = box(m1); m2 = box(m2);
+  const out = new Float64Array(2);
+  return (x, y) => {
+    const fx = Math.min(sw - 1.001, Math.max(0, x / f - 0.5)), fy = Math.min(sh - 1.001, Math.max(0, y / f - 0.5));
+    const x0 = fx | 0, y0 = fy | 0, ax = fx - x0, ay = fy - y0, k = y0 * sw + x0;
+    const mean = (m1[k] * (1 - ax) + m1[k + 1] * ax) * (1 - ay) + (m1[k + sw] * (1 - ax) + m1[k + sw + 1] * ax) * ay;
+    const sq = (m2[k] * (1 - ax) + m2[k + 1] * ax) * (1 - ay) + (m2[k + sw] * (1 - ax) + m2[k + sw + 1] * ax) * ay;
+    out[0] = mean; out[1] = Math.sqrt(Math.max(0, sq - mean * mean));
+    return out;
+  };
+}
+function applyMode(cv, mode) {
   if (mode === 'original') return;
   const x = cv.getContext('2d', {willReadFrequently: true});
-  const w = cv.width, h = cv.height, id = x.getImageData(0, 0, w, h), d = id.data, k = strength / 100;
-  const n = d.length;
-  if (mode === 'photo') {
-    const hist = new Uint32Array(256);
-    for (let i = 0; i < n; i += 4) hist[(d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8]++;
-    const total = n / 4, cut = total * (0.002 + 0.01 * k);
-    let lo = 0, hi = 255, acc = 0;
-    while (lo < 254 && (acc += hist[lo]) < cut) lo++;
-    acc = 0; while (hi > lo + 1 && (acc += hist[hi]) < cut) hi--;
-    const sc = 255 / Math.max(1, hi - lo), sat = 1 + 0.45 * k;
-    for (let i = 0; i < n; i += 4) {
-      let r = (d[i] - lo) * sc, g = (d[i + 1] - lo) * sc, b = (d[i + 2] - lo) * sc;
+  const w = cv.width, h = cv.height, id = x.getImageData(0, 0, w, h), d = id.data, n = w * h;
+  const bg = background(cv);
+  if (mode === 'scan') {
+    // Color: flatten lighting per channel (also white-balances the paper), mild saturation lift
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const r = toneC(d[i], bg[i]), g = toneC(d[i + 1], bg[i + 1]), b = toneC(d[i + 2], bg[i + 2]);
       const l = 0.299 * r + 0.587 * g + 0.114 * b;
-      d[i] = l + (r - l) * sat; d[i + 1] = l + (g - l) * sat; d[i + 2] = l + (b - l) * sat;
+      d[i] = l + (r - l) * 1.15; d[i + 1] = l + (g - l) * 1.15; d[i + 2] = l + (b - l) * 1.15;
     }
   } else {
-    const bg = background(cv);
-    const bp = mode === 'scan' ? 18 + 70 * k : 22 + 80 * k;
-    const lv = 255 / (255 - bp);
-    const t = 150 + 85 * k, soft = 16;
-    const sat = 1 + 0.35 * k;
-    for (let i = 0; i < n; i += 4) {
-      let r = d[i] * 255 / Math.max(bg[i], 24), g = d[i + 1] * 255 / Math.max(bg[i + 1], 24), b = d[i + 2] * 255 / Math.max(bg[i + 2], 24);
-      if (mode === 'scan') {
-        r = (r - bp) * lv; g = (g - bp) * lv; b = (b - bp) * lv;
-        const l = 0.299 * r + 0.587 * g + 0.114 * b;
-        d[i] = l + (r - l) * sat; d[i + 1] = l + (g - l) * sat; d[i + 2] = l + (b - l) * sat;
-      } else {
-        let l = 0.299 * r + 0.587 * g + 0.114 * b;
-        if (mode === 'gray') l = (l - bp) * lv;
-        else l = Math.min(255, Math.max(0, (l - (t - soft)) / (2 * soft) * 255));
-        d[i] = d[i + 1] = d[i + 2] = l;
+    const L = new Float32Array(n);
+    for (let p = 0, i = 0; p < n; p++, i += 4)
+      L[p] = toneOf(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114, bg[i] * 0.299 + bg[i + 1] * 0.587 + bg[i + 2] * 0.114);
+    const B = blur1(L, w, h);
+    if (mode === 'gray') {
+      // Grayscale: flattened page + light sharpening, full tonal range kept
+      for (let p = 0, i = 0; p < n; p++, i += 4) { const v = L[p] + 0.6 * (L[p] - B[p]); d[i] = d[i + 1] = d[i + 2] = v; }
+    } else {
+      // Black & white: Sauvola local threshold with a soft edge, so strokes stay smooth instead of jagged
+      for (let p = 0; p < n; p++) L[p] = L[p] + 0.8 * (L[p] - B[p]);
+      // Clearly dark areas (solid fills, photos) stay black so they don't turn into hollow outlines.
+      const stats = localStats(L, w, h), k = 0.3, R = 128, band = 24, solid = 150;
+      for (let y = 0, p = 0; y < h; y++) for (let xx = 0; xx < w; xx++, p++) {
+        const st = stats(xx, y), T = Math.max(st[0] * (1 + k * (st[1] / R - 1)), solid);
+        const v = L[p] > 246 ? 255 : Math.min(255, Math.max(0, ((L[p] - T) / band + 0.5) * 255));
+        const i = p * 4; d[i] = d[i + 1] = d[i + 2] = v;
       }
     }
   }
   x.putImageData(id, 0, 0);
 }
-// Scan-style modes crop to the detected sheet; Original and Vivid keep the whole photo.
+// Scan modes crop to the detected sheet; Original keeps the whole photo.
 function srcFor(item) {
   const mode = item.mode || state.mode;
-  if (!state.autoCrop || mode === 'original' || mode === 'photo') return item.src;
+  if (!state.autoCrop || mode === 'original') return item.src;
   if (item.paper === undefined) item.paper = detectPaper(item.src);
   return item.paper || item.src;
 }
@@ -376,13 +440,17 @@ function detectPaper(src) {
   let nb = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
   for (let i = 0; i < n; i++) { if (bg[i]) { nb++; continue; } const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   if (nb < n * 0.04 || (x1 - x0 + 1) * (y1 - y0 + 1) < n * 0.15) return null;
-  // mask: table pixels, grown 1px to cover the shadow edge, painted white
-  const m = sx.createImageData(w, h);
-  for (let i = 0; i < n; i++) {
-    const x = i % w; let on = bg[i];
-    if (!on) on = (x > 0 && bg[i - 1]) || (x < w - 1 && bg[i + 1]) || (i >= w && bg[i - w]) || (i < n - w && bg[i + w]);
-    m.data[i * 4] = m.data[i * 4 + 1] = m.data[i * 4 + 2] = 255; m.data[i * 4 + 3] = on ? 255 : 0;
+  // mask: table pixels, grown 2px to cover the paper's shadowed edge, painted white
+  let grown = bg;
+  for (let pass = 0; pass < 2; pass++) {
+    const g2 = new Uint8Array(n);
+    for (let i = 0; i < n; i++) { const x = i % w;
+      g2[i] = grown[i] || (x > 0 && grown[i - 1]) || (x < w - 1 && grown[i + 1]) || (i >= w && grown[i - w]) || (i < n - w && grown[i + w]) ? 1 : 0; }
+    grown = g2;
   }
+  const m = sx.createImageData(w, h);
+  for (let i = 0; i < n; i++) { m.data[i * 4] = m.data[i * 4 + 1] = m.data[i * 4 + 2] = 255; m.data[i * 4 + 3] = grown[i] ? 255 : 0; }
+  x0 += 1; y0 += 1; x1 -= 1; y1 -= 1; // trim the outermost row of edge pixels
   const mc = document.createElement('canvas'); mc.width = w; mc.height = h; mc.getContext('2d').putImageData(m, 0, 0);
   const k = 1 / sc, cx = Math.floor(x0 * k), cy = Math.floor(y0 * k);
   const cw = Math.min(src.width - cx, Math.ceil((x1 - x0 + 1) * k)), ch = Math.min(src.height - cy, Math.ceil((y1 - y0 + 1) * k));
@@ -395,7 +463,7 @@ function detectPaper(src) {
 function render(item, rot, maxDim, useCache = true) {
   const mode = item.mode || state.mode;
   const src = srcFor(item);
-  const key = mode + '|' + state.strength + '|' + rot + '|' + maxDim + '|' + (src === item.src ? 0 : 1);
+  const key = mode + '|' + rot + '|' + maxDim + '|' + (src === item.src ? 0 : 1);
   if (useCache && item.cache.has(key)) return item.cache.get(key);
   const sc = Math.min(1, maxDim / Math.max(src.width, src.height));
   const w = Math.max(1, Math.round(src.width * sc)), h = Math.max(1, Math.round(src.height * sc));
@@ -403,7 +471,7 @@ function render(item, rot, maxDim, useCache = true) {
   const c = document.createElement('canvas'); c.width = swap ? h : w; c.height = swap ? w : h;
   const x = c.getContext('2d', {willReadFrequently: true}); x.imageSmoothingQuality = 'high';
   x.translate(c.width / 2, c.height / 2); x.rotate(r * Math.PI / 180); x.drawImage(src, -w / 2, -h / 2, w, h);
-  applyMode(c, mode, state.strength);
+  applyMode(c, mode);
   if (useCache) { item.cache.set(key, c); if (item.cache.size > 6) item.cache.delete(item.cache.keys().next().value); }
   return c;
 }
@@ -462,7 +530,7 @@ function buildControls() {
   });
   segment('orient', 'orient'); segment('fit', 'fit');
   [['size', 'size'], ['quality', 'quality']].forEach(([id, k]) => $(id).onchange = e => { state[k] = e.target.value; sync(); });
-  [['margin', 'margin'], ['gap', 'gap'], ['strength', 'strength']].forEach(([id, k]) => $(id).oninput = e => { state[k] = +e.target.value; sync(); });
+  [['margin', 'margin'], ['gap', 'gap']].forEach(([id, k]) => $(id).oninput = e => { state[k] = +e.target.value; sync(); });
   ['autoRotate', 'cutLines', 'captions', 'autoCrop'].forEach(k => $(k).onchange = e => { state[k] = e.target.checked; sync(); });
   $('cols').oninput = e => { state.cols = clampInt(e.target.value, 1, 8); sync(false); };
   $('rows').oninput = e => { state.rows = clampInt(e.target.value, 1, 10); sync(false); };
@@ -479,16 +547,14 @@ function sync(writeInputs = true) {
   document.querySelectorAll('#fit button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === state.fit)));
   if (writeInputs) {
     $('size').value = state.size; $('quality').value = state.quality; $('margin').value = state.margin; $('gap').value = state.gap;
-    $('strength').value = state.strength; $('autoRotate').checked = state.autoRotate; $('cutLines').checked = state.cutLines;
+    $('autoRotate').checked = state.autoRotate; $('cutLines').checked = state.cutLines;
     $('captions').checked = state.captions; $('autoCrop').checked = state.autoCrop; $('cols').value = state.cols; $('rows').value = state.rows; $('filename').value = state.filename;
   }
   const [c, r] = grid();
   $('gridOut').textContent = `${c} × ${r}`;
   $('modeOut').textContent = MODES.find(m => m.v === state.mode).name;
-  $('strOut').textContent = state.strength;
   $('marginOut').textContent = state.margin + ' mm';
   $('gapOut').textContent = state.gap + ' mm';
-  $('strength').disabled = state.mode === 'original';
   persist();
   schedule();
 }
@@ -662,42 +728,54 @@ if (window.Sortable) Sortable.create($('tray'), {animation: 150, delay: 120, del
 
 /* ---------- export ---------- */
 const dlReady = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
-// On phones the PDF is built first, then a second tap opens the share sheet (Save to Files, Mail, Messages…),
-// because the browser only allows sharing directly from a tap.
-let readyFile = null, readyUrl = null;
+// After building, the PDF opens in an in-app preview with Back, Save and Share — the page never navigates away.
+// Saving and sharing happen from a fresh tap there, which iOS requires for its share sheet.
+let readyFile = null;
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canShareFile = f => !!(navigator.canShare && navigator.canShare({files: [f]}));
 function showReady(blob, name) {
-  if (readyUrl) URL.revokeObjectURL(readyUrl);
   readyFile = new File([blob], name, {type: 'application/pdf'});
-  readyUrl = URL.createObjectURL(blob);
-  $('readyInfo').textContent = `${name} · ${(blob.size / 1048576).toFixed(1)} MB`;
-  $('ready').hidden = false;
-  $('shareBtn').focus();
-}
-$('shareBtn').onclick = async () => {
-  if (!readyFile) return;
-  if (navigator.canShare && navigator.canShare({files: [readyFile]})) {
-    try { await navigator.share({files: [readyFile], title: readyFile.name}); $('ready').hidden = true; }
-    catch (e) { if (e.name !== 'AbortError') toast('Sharing failed. Try Open instead.'); }
-  } else {
-    const a = document.createElement('a'); a.href = readyUrl; a.download = readyFile.name; document.body.appendChild(a); a.click(); a.remove();
-    $('ready').hidden = true;
+  const L = layoutInfo(), vp = $('vpages'), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const cssW = Math.min(620, window.innerWidth - 32);
+  vp.textContent = '';
+  for (let p = 0; p < L.pages; p++) {
+    const cv = document.createElement('canvas'), scale = cssW * dpr / L.pw;
+    cv.width = Math.round(L.pw * scale); cv.height = Math.round(L.ph * scale); cv.style.width = cssW + 'px';
+    cv.setAttribute('aria-label', `Page ${p + 1}`);
+    drawPage(cv.getContext('2d'), L, p, scale, false);
+    vp.appendChild(cv);
   }
-};
-$('openBtn').onclick = () => { if (readyUrl) location.href = readyUrl; };
-$('readyClose').onclick = () => { $('ready').hidden = true; };
-async function saveBlob(blob, name) {
+  $('readyTitle').textContent = name;
+  $('readyInfo').textContent = `${L.pages} page${L.pages === 1 ? '' : 's'} · ${(blob.size / 1048576).toFixed(1)} MB`;
+  $('shareBtn').hidden = !canShareFile(readyFile);
+  $('ready').hidden = false; vp.scrollTop = 0;
+  document.body.style.overflow = 'hidden';
+  $('saveBtn').focus();
+}
+function closeReady() { $('ready').hidden = true; document.body.style.overflow = ''; }
+async function shareReady() {
+  try { await navigator.share({files: [readyFile], title: readyFile.name}); }
+  catch (e) { if (e.name !== 'AbortError') toast('Sharing did not work here. Try Save instead.'); }
+}
+$('shareBtn').onclick = () => { if (readyFile) shareReady(); };
+$('saveBtn').onclick = async () => {
+  if (!readyFile) return;
   const dl = await dlReady;
   if (dl) {
-    try { await dl.save({filename: name, data: blob}); toast(`Saved ${name}.`); }
+    try { await dl.save({filename: readyFile.name, data: readyFile}); toast(`Saved ${readyFile.name}.`); }
     catch (e) { toast(e && e.code === 'declined' ? 'Save cancelled.' : `Couldn't save the file (${(e && e.code) || 'error'}).`); }
     return;
   }
-  if (TOUCH) { showReady(blob, name); return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
-  toast(`Saved ${name}.`);
-}
+  // iPhone: the share sheet's "Save to Files" is the native way to save a file
+  if (IOS && canShareFile(readyFile)) { toast('Tap "Save to Files" in the menu.', 3500); shareReady(); return; }
+  const url = URL.createObjectURL(readyFile), a = document.createElement('a');
+  a.href = url; a.download = readyFile.name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 5000);
+  toast(IOS ? 'Saved to Files › Downloads.' : `Saved ${readyFile.name}.`);
+};
+$('readyClose').onclick = closeReady;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ready').hidden) closeReady(); });
+async function saveBlob(blob, name) { showReady(blob, name); }
 let busy = false;
 async function exportPdf() {
   if (busy) return;
@@ -819,6 +897,8 @@ try {
   if (ios && !standalone && !inFrame && !localStorage.getItem('gridscan.a2hs')) $('a2hs').hidden = false;
 } catch (e) {}
 $('a2hsClose').onclick = () => { $('a2hs').hidden = true; try { localStorage.setItem('gridscan.a2hs', '1'); } catch (e) {} };
+
+if (location.hash === '#debug') window.__gs = {render, srcFor, detectPaper, background, items: () => items, state};
 
 buildControls();
 makeSamples();
