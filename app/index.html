@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2445d4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gridscan">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
 </head>
 <body>
@@ -42,7 +49,7 @@ header.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-
 .grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
 @media (max-width:860px){.grid{grid-template-columns:1fr}.priv{margin-left:0}}
 aside.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:18px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
-@media (max-width:860px){aside.panel{position:static}}
+@media (max-width:860px){aside.panel{position:static;order:2}main{order:1}}
 .sec{display:flex;flex-direction:column;gap:9px}
 .sec h2{margin:0;font:600 .72rem var(--f-body);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);display:flex;justify-content:space-between;align-items:baseline}
 .sec h2 output{font:500 .78rem var(--f-mono);letter-spacing:0;text-transform:none;color:var(--ink)}
@@ -102,6 +109,14 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
 .page figcaption{font:400 .74rem var(--f-mono);color:var(--muted);display:flex;justify-content:space-between}
 .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:40px 10px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:.88rem;max-width:min(92vw,520px);box-shadow:var(--shadow);z-index:20}
+.ready{position:fixed;inset:0;z-index:30;background:rgba(10,16,24,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+.ready-box{background:var(--surface);color:var(--ink);border-radius:14px;padding:18px;width:min(460px,100%);display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow)}
+.ready-box strong{font:700 1.15rem var(--f-display)}
+.ready-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ready-actions .btn{flex:1 1 auto}
+.a2hs{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:25;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:.88rem;box-shadow:var(--shadow)}
+.a2hs span{flex:1}
+.a2hs .ico{color:var(--bg);border-color:transparent}
 .mbar{display:none}
 @media (max-width:860px){
   .mbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:10;gap:10px;align-items:center;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
@@ -178,9 +193,11 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
     <main>
       <div class="drop" id="drop">
         <button class="btn primary" id="addBtn">Add photos</button>
+        <button class="btn" id="camBtn" hidden>Take photo</button>
         <p><strong>Drop photos here</strong> or paste from the clipboard. JPG, PNG, WebP. Drag cards to reorder.</p>
         <button class="btn ghost" id="clearBtn">Clear all</button>
         <input type="file" id="file" accept="image/*" multiple hidden>
+        <input type="file" id="camera" accept="image/*" capture="environment" hidden>
       </div>
 
       <section>
@@ -198,6 +215,14 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
 
 <div class="mbar"><div class="stats" id="mstats">—</div><button class="btn primary" id="mExportBtn">Create PDF</button></div>
 <div class="toast" id="toast" hidden></div>
+<div class="ready" id="ready" hidden role="dialog" aria-labelledby="readyTitle">
+  <div class="ready-box">
+    <strong id="readyTitle">PDF ready</strong>
+    <span class="stats" id="readyInfo"></span>
+    <div class="ready-actions"><button class="btn primary" id="shareBtn">Save or share</button><button class="btn" id="openBtn">Open</button><button class="btn ghost" id="readyClose">Close</button></div>
+  </div>
+</div>
+<div class="a2hs" id="a2hs" hidden><span>Use it like an app: tap <b>Share</b> then <b>Add to Home Screen</b>.</span><button class="ico" id="a2hsClose" aria-label="Dismiss">✕</button></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
@@ -216,7 +241,8 @@ const MODES = [
 ];
 const QUAL = {small:{dpi:110,q:.62}, standard:{dpi:160,q:.78}, high:{dpi:220,q:.86}, max:{dpi:300,q:.92}};
 const MM = 72/25.4;
-const SRC_MAX = 3200;
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+const SRC_MAX = TOUCH ? 2400 : 3200; // phones have tighter canvas memory
 
 const usLike = /^en-(US|CA)|^es-(US|MX)/i.test(navigator.language || '');
 const defaults = {perPage:4, custom:false, cols:2, rows:2, size: usLike ? 'letter' : 'a4', orient:'portrait',
@@ -621,6 +647,9 @@ async function addFiles(list) {
 }
 $('addBtn').onclick = () => $('file').click();
 $('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+$('camBtn').hidden = !TOUCH;
+$('camBtn').onclick = () => $('camera').click();
+$('camera').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 $('clearBtn').onclick = () => { items = []; buildTray(); schedule(); };
 const drop = $('drop');
 ['dragenter', 'dragover'].forEach(t => window.addEventListener(t, e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); drop.classList.add('over'); } }));
@@ -633,6 +662,29 @@ if (window.Sortable) Sortable.create($('tray'), {animation: 150, delay: 120, del
 
 /* ---------- export ---------- */
 const dlReady = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+// On phones the PDF is built first, then a second tap opens the share sheet (Save to Files, Mail, Messages…),
+// because the browser only allows sharing directly from a tap.
+let readyFile = null, readyUrl = null;
+function showReady(blob, name) {
+  if (readyUrl) URL.revokeObjectURL(readyUrl);
+  readyFile = new File([blob], name, {type: 'application/pdf'});
+  readyUrl = URL.createObjectURL(blob);
+  $('readyInfo').textContent = `${name} · ${(blob.size / 1048576).toFixed(1)} MB`;
+  $('ready').hidden = false;
+  $('shareBtn').focus();
+}
+$('shareBtn').onclick = async () => {
+  if (!readyFile) return;
+  if (navigator.canShare && navigator.canShare({files: [readyFile]})) {
+    try { await navigator.share({files: [readyFile], title: readyFile.name}); $('ready').hidden = true; }
+    catch (e) { if (e.name !== 'AbortError') toast('Sharing failed. Try Open instead.'); }
+  } else {
+    const a = document.createElement('a'); a.href = readyUrl; a.download = readyFile.name; document.body.appendChild(a); a.click(); a.remove();
+    $('ready').hidden = true;
+  }
+};
+$('openBtn').onclick = () => { if (readyUrl) location.href = readyUrl; };
+$('readyClose').onclick = () => { $('ready').hidden = true; };
 async function saveBlob(blob, name) {
   const dl = await dlReady;
   if (dl) {
@@ -640,6 +692,7 @@ async function saveBlob(blob, name) {
     catch (e) { toast(e && e.code === 'declined' ? 'Save cancelled.' : `Couldn't save the file (${(e && e.code) || 'error'}).`); }
     return;
   }
+  if (TOUCH) { showReady(blob, name); return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
@@ -757,6 +810,15 @@ function makeSamples() {
   items = [['sample-receipt.jpg', receipt], ['sample-homework.jpg', note], ['sample-library-card.jpg', card], ['sample-drawing.jpg', art]]
     .map(([name, src]) => ({id: ++uid, name, src, rot: 0, mode: null, sample: true, cache: new Map()}));
 }
+
+// iPhone Safari: suggest Add to Home Screen (not shown inside an installed app or after dismissal)
+try {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const inFrame = window.top !== window.self;
+  if (ios && !standalone && !inFrame && !localStorage.getItem('gridscan.a2hs')) $('a2hs').hidden = false;
+} catch (e) {}
+$('a2hsClose').onclick = () => { $('a2hs').hidden = true; try { localStorage.setItem('gridscan.a2hs', '1'); } catch (e) {} };
 
 buildControls();
 makeSamples();
