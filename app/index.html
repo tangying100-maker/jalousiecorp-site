@@ -188,10 +188,10 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
         <h2>Export</h2>
         <div class="row2">
           <select id="quality" aria-label="Quality">
-            <option value="small">Email · 110 dpi</option>
-            <option value="standard">Standard · 160 dpi</option>
-            <option value="high">Print · 220 dpi</option>
-            <option value="max">Archive · 300 dpi</option>
+            <option value="small">Email · 150 dpi</option>
+            <option value="standard">Standard · 220 dpi</option>
+            <option value="high">Print · 300 dpi</option>
+            <option value="max">Archive · 400 dpi</option>
           </select>
           <input id="filename" type="text" value="photos" aria-label="File name" spellcheck="false">
         </div>
@@ -258,10 +258,23 @@ const MODES = [
   {v:'gray', name:'Grayscale'},
   {v:'bw', name:'B & W'}
 ];
-const QUAL = {small:{dpi:110,q:.62}, standard:{dpi:160,q:.78}, high:{dpi:220,q:.86}, max:{dpi:300,q:.92}};
+const QUAL = {small:{dpi:150,q:.75}, standard:{dpi:220,q:.86}, high:{dpi:300,q:.9}, max:{dpi:400,q:.94}};
 const MM = 72/25.4;
 const TOUCH = matchMedia('(pointer: coarse)').matches;
-const SRC_MAX = TOUCH ? 2400 : 3200; // phones have tighter canvas memory
+const SRC_MAX = TOUCH ? 3264 : 4096; // phones have tighter canvas memory
+// Shrink in halving steps: one big drawImage jump aliases and smears fine text.
+function scaledCopy(src, w, h) {
+  let cur = src, cw = src.width, ch = src.height;
+  while (cw / 2 >= w && ch / 2 >= h) {
+    const nw = Math.round(cw / 2), nh = Math.round(ch / 2), t = document.createElement('canvas');
+    t.width = nw; t.height = nh; const tx = t.getContext('2d'); tx.imageSmoothingQuality = 'high';
+    tx.drawImage(cur, 0, 0, nw, nh); cur = t; cw = nw; ch = nh;
+  }
+  if (cw === w && ch === h && cur !== src) return cur;
+  const o = document.createElement('canvas'); o.width = w; o.height = h;
+  const ox = o.getContext('2d'); ox.imageSmoothingQuality = 'high'; ox.drawImage(cur, 0, 0, w, h);
+  return o;
+}
 
 const usLike = /^en-(US|CA)|^es-(US|MX)/i.test(navigator.language || '');
 const defaults = {perPage:4, custom:false, cols:2, rows:2, size: usLike ? 'letter' : 'a4', orient:'portrait',
@@ -487,7 +500,7 @@ function render(item, rot, maxDim, useCache = true) {
   const r = ((rot % 360) + 360) % 360, swap = r === 90 || r === 270;
   const c = document.createElement('canvas'); c.width = swap ? h : w; c.height = swap ? w : h;
   const x = c.getContext('2d', {willReadFrequently: true}); x.imageSmoothingQuality = 'high';
-  x.translate(c.width / 2, c.height / 2); x.rotate(r * Math.PI / 180); x.drawImage(src, -w / 2, -h / 2, w, h);
+  x.translate(c.width / 2, c.height / 2); x.rotate(r * Math.PI / 180); x.drawImage(sc < 1 ? scaledCopy(src, w, h) : src, -w / 2, -h / 2, w, h);
   applyMode(c, mode);
   if (useCache) { item.cache.set(key, c); if (item.cache.size > 6) item.cache.delete(item.cache.keys().next().value); }
   return c;
@@ -690,7 +703,7 @@ function estimateMB(L) {
   if (!items.length) return '0';
   const q = QUAL[state.quality];
   const area = items.length * (L.cw * L.ch) / (72 * 72) * q.dpi * q.dpi * (state.fit === 'contain' ? .8 : 1);
-  const bpp = {small: .09, standard: .14, high: .2, max: .28}[state.quality] * (state.mode === 'bw' ? .7 : 1);
+  const bpp = {small: .1, standard: .14, high: .17, max: .2}[state.quality] * (state.mode === 'bw' ? .5 : 1);
   const mb = area * bpp / 1048576;
   return mb < 1 ? mb.toFixed(1) : mb.toFixed(mb < 10 ? 1 : 0);
 }
@@ -834,7 +847,9 @@ async function exportPdf() {
           cc.getContext('2d').drawImage(c, pl.crop.fx * c.width, pl.crop.fy * c.height, cc.width, cc.height, 0, 0, cc.width, cc.height);
           c = cc;
         }
-        doc.addImage(c.toDataURL('image/jpeg', q.q), 'JPEG', pl.x, pl.y, pl.dw, pl.dh, undefined, 'FAST');
+        // B&W pages are lossless PNG (JPEG leaves gray smudges around black text and is larger here)
+        if ((it.mode || state.mode) === 'bw') doc.addImage(c.toDataURL('image/png'), 'PNG', pl.x, pl.y, pl.dw, pl.dh, undefined, 'FAST');
+        else doc.addImage(c.toDataURL('image/jpeg', q.q), 'JPEG', pl.x, pl.y, pl.dw, pl.dh, undefined, 'FAST');
         if (state.captions) {
           doc.setFontSize(7.5); doc.setTextColor(74, 85, 98);
           doc.text(truncate(it.name, 48), pl.cell.x + pl.cell.w / 2, pl.cell.y + pl.cell.h - 2.5, {align: 'center', maxWidth: pl.cell.w});
