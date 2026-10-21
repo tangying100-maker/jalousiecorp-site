@@ -24,6 +24,7 @@
   --bg:#e9edf1; --surface:#ffffff; --table:#dde3e9; --ink:#14202c; --muted:#566473; --line:#cdd5dd;
   --accent:#2445d4; --accent-ink:#ffffff; --accent-soft:rgba(36,69,212,.10); --danger:#b42318; --paper:#ffffff;
   --shadow:0 1px 2px rgba(20,32,44,.10),0 6px 18px rgba(20,32,44,.10);
+  --ed-bg:#0b0f14; --ed-bar:#151b22; --ed-ink:#e8edf2; --ed-muted:#9aa6b2; --ed-line:rgba(232,237,242,.24); /* editor is dark in both themes, like photo apps */
   --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
   --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Consolas,monospace;
@@ -125,6 +126,22 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
 .coach-row svg{width:22px;height:22px;color:var(--accent);flex:none}
 .ready-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 .ready-actions .btn{flex:1 1 auto}
+.editor{position:fixed;inset:0;z-index:35;background:var(--ed-bg);color:var(--ed-ink);display:flex;flex-direction:column}
+.ebar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;background:var(--ed-bar)}
+.ebar strong{font:700 1rem var(--f-display)}
+.editor .btn{background:transparent;color:var(--ed-ink);border-color:var(--ed-line)}
+.editor .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.estage{flex:1;position:relative;overflow:hidden;touch-action:none;min-height:0}
+.estage canvas#edCanvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.loupe{position:absolute;width:120px;height:120px;border-radius:50%;border:3px solid #fff;box-shadow:0 4px 16px rgba(0,0,0,.5);pointer-events:none;background:#000}
+.etools{display:flex;flex-direction:column;gap:10px;padding:10px 16px calc(14px + env(safe-area-inset-bottom,0px));background:var(--ed-bar)}
+.ehint{margin:0;font-size:.82rem;color:var(--ed-muted);text-align:center}
+.etool-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.etool-row .btn{padding:9px 6px;font-size:.88rem}
+.editor .chips{justify-content:center}
+.editor .chip{color:var(--ed-ink);border-color:var(--ed-line);font-family:var(--f-body);font-size:.82rem}
+.editor .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.thumb{cursor:pointer}
 .a2hs{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:25;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:.88rem;box-shadow:var(--shadow)}
 .a2hs span{flex:1}
 .a2hs .ico{color:var(--bg);border-color:transparent}
@@ -161,7 +178,7 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
       <div class="sec">
         <h2>Scan look <output id="modeOut">Color scan</output></h2>
         <div class="modes" id="modes"></div>
-        <label class="check"><input type="checkbox" id="autoCrop"> Find the paper, crop off the table</label>
+        <label class="check"><input type="checkbox" id="autoCrop"> Auto-straighten pages</label>
         <p class="hint">Applies to every photo. Override one photo from its card.</p>
       </div>
 
@@ -240,6 +257,23 @@ main{display:flex;flex-direction:column;gap:16px;min-width:0}
       <p class="hint" id="coachHint">Then pick a folder and tap Save.</p>
       <div class="ready-actions"><button class="btn primary" id="coachGo">Continue</button><button class="btn ghost" id="coachCancel">Cancel</button></div>
     </div>
+  </div>
+</div>
+<div class="editor" id="editor" hidden role="dialog" aria-labelledby="edTitle">
+  <div class="ebar">
+    <button class="btn ghost" id="edCancel">Cancel</button>
+    <strong id="edTitle">Adjust corners</strong>
+    <button class="btn primary" id="edDone">Done</button>
+  </div>
+  <div class="estage" id="edStage"><canvas id="edCanvas" aria-label="Photo with draggable corners"></canvas><canvas id="edLoupe" class="loupe" width="240" height="240" hidden></canvas></div>
+  <div class="etools">
+    <p class="ehint" id="edHint">Drag the four corners onto the edges of the page.</p>
+    <div class="etool-row">
+      <button class="btn" id="edAuto">Auto detect</button>
+      <button class="btn" id="edFull">Whole photo</button>
+      <button class="btn" id="edRot" aria-label="Rotate 90 degrees">Rotate ↻</button>
+    </div>
+    <div class="chips" id="edModes" role="group" aria-label="Look for this photo"></div>
   </div>
 </div>
 <div class="a2hs" id="a2hs" hidden><span>Use it like an app: tap <b>Share</b> then <b>Add to Home Screen</b>.</span><button class="ico" id="a2hsClose" aria-label="Dismiss">✕</button></div>
@@ -433,14 +467,66 @@ function applyMode(cv, mode) {
   }
   x.putImageData(id, 0, 0);
 }
-// Scan modes crop to the detected sheet; Original keeps the whole photo.
-function srcFor(item) {
+// ---- Perspective: find the sheet's four corners, then flatten it like a flatbed scan ----
+// item.quad: null = automatic, 'full' = keep the whole photo, [tl,tr,br,bl] = corners the user set (source pixels)
+function quadFor(item) {
+  if (item.quad === 'full') return null;
+  if (Array.isArray(item.quad)) return item.quad;
   const mode = item.mode || state.mode;
-  if (!state.autoCrop || mode === 'original') return item.src;
-  if (item.paper === undefined) item.paper = detectPaper(item.src);
-  return item.paper || item.src;
+  if (!state.autoCrop || mode === 'original') return null;
+  if (item.autoQuad === undefined) item.autoQuad = detectQuad(item.src);
+  return item.autoQuad;
 }
-function detectPaper(src) {
+const quadKey = q => q.map(p => Math.round(p.x) + ',' + Math.round(p.y)).join(';');
+function srcFor(item) {
+  const q = quadFor(item);
+  if (!q) return item.src;
+  const k = quadKey(q);
+  if (item.flatKey !== k) { item.flat = warp(item.src, q); item.flatKey = k; }
+  return item.flat;
+}
+// Homography mapping 4 points `from` onto 4 points `to` (8 unknowns, Gaussian elimination)
+function solveH(from, to) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const x = from[i].x, y = from[i].y, u = to[i].x, v = to[i].y;
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = 0; r < 8; r++) { if (r === c) continue; const f = A[r][c] / A[c][c]; for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+  }
+  return b.map((v, i) => v / A[i][i]);
+}
+function warp(src, q) {
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
+  const s = Math.min(1, SRC_MAX / Math.max(W, H));
+  W = Math.max(8, Math.round(W * s)); H = Math.max(8, Math.round(H * s));
+  const h = solveH([{x: 0, y: 0}, {x: W, y: 0}, {x: W, y: H}, {x: 0, y: H}], q);
+  const sw = src.width, sh = src.height;
+  const S = src.getContext('2d', {willReadFrequently: true}).getImageData(0, 0, sw, sh).data;
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const ox = out.getContext('2d'), od = ox.createImageData(W, H), O = od.data;
+  for (let y = 0, o = 0; y < H; y++) {
+    const yy = y + 0.5, nu = h[1] * yy + h[2], nv = h[4] * yy + h[5], dn = h[7] * yy + 1;
+    for (let x = 0; x < W; x++, o += 4) {
+      const xx = x + 0.5, den = h[6] * xx + dn;
+      let u = (h[0] * xx + nu) / den - 0.5, v = (h[3] * xx + nv) / den - 0.5;
+      u = u < 0 ? 0 : u > sw - 1.001 ? sw - 1.001 : u; v = v < 0 ? 0 : v > sh - 1.001 ? sh - 1.001 : v;
+      const x0 = u | 0, y0 = v | 0, ax = u - x0, ay = v - y0, i0 = (y0 * sw + x0) * 4, i2 = i0 + sw * 4;
+      for (let c = 0; c < 3; c++)
+        O[o + c] = (S[i0 + c] * (1 - ax) + S[i0 + 4 + c] * ax) * (1 - ay) + (S[i2 + c] * (1 - ax) + S[i2 + 4 + c] * ax) * ay;
+      O[o + 3] = 255;
+    }
+  }
+  ox.putImageData(od, 0, 0);
+  return out;
+}
+const fullQuad = src => [{x: 0, y: 0}, {x: src.width, y: 0}, {x: src.width, y: src.height}, {x: 0, y: src.height}];
+function detectQuad(src) {
   const sc = 220 / Math.max(src.width, src.height);
   const w = Math.max(8, Math.round(src.width * sc)), h = Math.max(8, Math.round(src.height * sc)), n = w * h;
   const s = document.createElement('canvas'); s.width = w; s.height = h;
@@ -470,30 +556,29 @@ function detectPaper(src) {
   let nb = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
   for (let i = 0; i < n; i++) { if (bg[i]) { nb++; continue; } const x = i % w, y = (i / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   if (nb < n * 0.04 || (x1 - x0 + 1) * (y1 - y0 + 1) < n * 0.15) return null;
-  // mask: table pixels, grown 2px to cover the paper's shadowed edge, painted white
-  let grown = bg;
-  for (let pass = 0; pass < 2; pass++) {
-    const g2 = new Uint8Array(n);
-    for (let i = 0; i < n; i++) { const x = i % w;
-      g2[i] = grown[i] || (x > 0 && grown[i - 1]) || (x < w - 1 && grown[i + 1]) || (i >= w && grown[i - w]) || (i < n - w && grown[i + w]) ? 1 : 0; }
-    grown = g2;
+  // Corners of the sheet = the paper pixels furthest toward each corner (x+y and x−y extremes)
+  let pTL = null, pTR = null, pBR = null, pBL = null, a1 = Infinity, a2 = -Infinity, a3 = -Infinity, a4 = Infinity;
+  for (let i = 0; i < n; i++) {
+    if (bg[i]) continue;
+    const x = i % w, y = (i / w) | 0, s1 = x + y, s2 = x - y;
+    if (s1 < a1) { a1 = s1; pTL = {x, y}; } if (s1 > a2) { a2 = s1; pBR = {x, y}; }
+    if (s2 > a3) { a3 = s2; pTR = {x, y}; } if (s2 < a4) { a4 = s2; pBL = {x, y}; }
   }
-  const m = sx.createImageData(w, h);
-  for (let i = 0; i < n; i++) { m.data[i * 4] = m.data[i * 4 + 1] = m.data[i * 4 + 2] = 255; m.data[i * 4 + 3] = grown[i] ? 255 : 0; }
-  x0 += 1; y0 += 1; x1 -= 1; y1 -= 1; // trim the outermost row of edge pixels
-  const mc = document.createElement('canvas'); mc.width = w; mc.height = h; mc.getContext('2d').putImageData(m, 0, 0);
-  const k = 1 / sc, cx = Math.floor(x0 * k), cy = Math.floor(y0 * k);
-  const cw = Math.min(src.width - cx, Math.ceil((x1 - x0 + 1) * k)), ch = Math.min(src.height - cy, Math.ceil((y1 - y0 + 1) * k));
-  const out = document.createElement('canvas'); out.width = cw; out.height = ch;
-  const ox = out.getContext('2d'); ox.imageSmoothingQuality = 'high';
-  ox.drawImage(src, cx, cy, cw, ch, 0, 0, cw, ch);
-  ox.drawImage(mc, x0, y0, x1 - x0 + 1, y1 - y0 + 1, 0, 0, cw, ch);
-  return out;
+  const quad = [pTL, pTR, pBR, pBL];
+  // nudge each corner 1px inward (off the shadowed edge), then scale back to source pixels
+  const cxm = (pTL.x + pTR.x + pBR.x + pBL.x) / 4, cym = (pTL.y + pTR.y + pBR.y + pBL.y) / 4, k = 1 / sc;
+  const out = quad.map(p => {
+    const dx = cxm - p.x, dy = cym - p.y, len = Math.hypot(dx, dy) || 1;
+    return {x: Math.min(src.width, Math.max(0, (p.x + 0.5 + dx / len * 1.2) * k)), y: Math.min(src.height, Math.max(0, (p.y + 0.5 + dy / len * 1.2) * k))};
+  });
+  const area = Math.abs((out[0].x * out[1].y - out[1].x * out[0].y) + (out[1].x * out[2].y - out[2].x * out[1].y) +
+    (out[2].x * out[3].y - out[3].x * out[2].y) + (out[3].x * out[0].y - out[0].x * out[3].y)) / 2;
+  return area > src.width * src.height * 0.15 ? out : null;
 }
 function render(item, rot, maxDim, useCache = true) {
   const mode = item.mode || state.mode;
   const src = srcFor(item);
-  const key = mode + '|' + rot + '|' + maxDim + '|' + (src === item.src ? 0 : 1);
+  const key = mode + '|' + rot + '|' + maxDim + '|' + (src === item.src ? '' : item.flatKey);
   if (useCache && item.cache.has(key)) return item.cache.get(key);
   const sc = Math.min(1, maxDim / Math.max(src.width, src.height));
   const w = Math.max(1, Math.round(src.width * sc)), h = Math.max(1, Math.round(src.height * sc));
@@ -591,6 +676,7 @@ function sync(writeInputs = true) {
 
 /* ---------- UI: tray & pages ---------- */
 const ICON_ROT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5v3h-3"/></svg>';
+const ICON_EDIT = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 1.5v10.5h10.5"/><path d="M1.5 4H12v10.5"/></svg>';
 const ICON_DEL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
 function buildTray() {
   const tray = $('tray'); tray.textContent = '';
@@ -600,11 +686,12 @@ function buildTray() {
     card.innerHTML = `<div class="thumb"><canvas></canvas><span class="num">${i + 1}</span>${it.sample ? '<span class="sample">Sample</span>' : ''}</div>
       <div class="fname"></div>
       <div class="cardbar"><select aria-label="Scan look for this photo"><option value="">Default look</option>${MODES.map(m => `<option value="${m.v}">${m.name}</option>`).join('')}</select>
-      <button class="ico" data-a="rot" aria-label="Rotate 90 degrees">${ICON_ROT}</button><button class="ico del" data-a="del" aria-label="Remove photo">${ICON_DEL}</button></div>`;
+      <button class="ico" data-a="edit" aria-label="Crop and straighten">${ICON_EDIT}</button><button class="ico del" data-a="del" aria-label="Remove photo">${ICON_DEL}</button></div>`;
     card.querySelector('.fname').textContent = it.name; card.querySelector('.fname').title = it.name;
     const sel = card.querySelector('select'); sel.value = it.mode || '';
     sel.onchange = () => { it.mode = sel.value || null; schedule(); };
-    card.querySelector('[data-a=rot]').onclick = () => { it.rot = (it.rot + 90) % 360; schedule(); };
+    card.querySelector('[data-a=edit]').onclick = () => openEditor(it);
+    card.querySelector('.thumb').onclick = () => openEditor(it);
     card.querySelector('[data-a=del]').onclick = () => { items = items.filter(x => x !== it); buildTray(); schedule(); };
     card.onkeydown = e => {
       const idx = items.indexOf(it);
@@ -631,9 +718,10 @@ function drawModeSwatches() {
     const cv = b.querySelector('canvas'), x = cv.getContext('2d');
     x.fillStyle = '#fff'; x.fillRect(0, 0, cv.width, cv.height);
     if (!it) return;
-    if (it.paper === undefined) it.paper = detectPaper(it.src);
-    const fake = {src: it.src, paper: it.paper, rot: it.rot, mode: b.dataset.v, cache: swatchCache};
+    if (it.autoQuad === undefined) it.autoQuad = detectQuad(it.src);
+    const fake = {src: it.src, quad: it.quad, autoQuad: it.autoQuad, flat: it.flat, flatKey: it.flatKey, rot: it.rot, mode: b.dataset.v, cache: swatchCache};
     const c = render(fake, it.rot, 140);
+    if (fake.flatKey && fake.flatKey !== it.flatKey) { it.flat = fake.flat; it.flatKey = fake.flatKey; }
     const s = Math.max(cv.width / c.width, cv.height / c.height), w = c.width * s, h = c.height * s;
     x.drawImage(c, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
   });
@@ -755,6 +843,136 @@ window.addEventListener('paste', e => { const fs = [...(e.clipboardData?.files |
 
 if (window.Sortable) Sortable.create($('tray'), {animation: 150, delay: 120, delayOnTouchOnly: true, filter: 'select,button', preventOnFilter: false,
   onEnd: () => { const order = [...$('tray').children].map(c => c.dataset.id); items.sort((a, b) => order.indexOf(String(a.id)) - order.indexOf(String(b.id))); schedule(); }});
+
+/* ---------- photo editor: four-corner crop + straighten ---------- */
+const ed = {item: null, quad: null, rot: 0, mode: null, prev: null, ps: 1, k: 1, ox: 0, oy: 0, drag: -1};
+function edView() { // source → screen transform for the current rotation
+  const s = ed.item.src, r = ed.rot, vw = r % 180 ? s.height : s.width, vh = r % 180 ? s.width : s.height;
+  const st = $('edStage'), W = st.clientWidth, H = st.clientHeight, pad = 28;
+  ed.k = Math.min((W - 2 * pad) / vw, (H - 2 * pad) / vh);
+  ed.ox = (W - vw * ed.k) / 2; ed.oy = (H - vh * ed.k) / 2;
+}
+function s2v(p) {
+  const s = ed.item.src, r = ed.rot; let x = p.x, y = p.y;
+  if (r === 90) [x, y] = [s.height - p.y, p.x]; else if (r === 180) [x, y] = [s.width - p.x, s.height - p.y]; else if (r === 270) [x, y] = [p.y, s.width - p.x];
+  return {x: ed.ox + x * ed.k, y: ed.oy + y * ed.k};
+}
+function v2s(sx, sy) {
+  const s = ed.item.src, r = ed.rot, vx = (sx - ed.ox) / ed.k, vy = (sy - ed.oy) / ed.k; let x = vx, y = vy;
+  if (r === 90) [x, y] = [vy, s.height - vx]; else if (r === 180) [x, y] = [s.width - vx, s.height - vy]; else if (r === 270) [x, y] = [s.width - vy, vx];
+  return {x: Math.min(s.width, Math.max(0, x)), y: Math.min(s.height, Math.max(0, y))};
+}
+function edDraw() {
+  const cv = $('edCanvas'), st = $('edStage'), dpr = Math.min(3, window.devicePixelRatio || 1);
+  const W = st.clientWidth, H = st.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  edView();
+  const s = ed.item.src;
+  // photo alone on an offscreen canvas (the magnifier samples this, so handles never cover the corner)
+  if (!ed.base) ed.base = document.createElement('canvas');
+  const base = ed.base; if (base.width !== cv.width || base.height !== cv.height) { base.width = cv.width; base.height = cv.height; }
+  const bx = base.getContext('2d');
+  bx.setTransform(dpr, 0, 0, dpr, 0, 0); bx.fillStyle = '#0b0f14'; bx.fillRect(0, 0, W, H);
+  bx.save(); bx.translate(ed.ox, ed.oy); bx.scale(ed.k, ed.k);
+  if (ed.rot === 90) { bx.translate(s.height, 0); bx.rotate(Math.PI / 2); }
+  else if (ed.rot === 180) { bx.translate(s.width, s.height); bx.rotate(Math.PI); }
+  else if (ed.rot === 270) { bx.translate(0, s.width); bx.rotate(-Math.PI / 2); }
+  bx.imageSmoothingQuality = 'high'; bx.drawImage(ed.prev, 0, 0, s.width, s.height);
+  bx.restore();
+  const x = cv.getContext('2d');
+  x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(base, 0, 0);
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const pts = ed.quad.map(s2v);
+  // dim everything outside the page
+  x.beginPath(); x.rect(0, 0, W, H); x.moveTo(pts[0].x, pts[0].y); for (let i = 3; i >= 0; i--) x.lineTo(pts[i].x, pts[i].y); x.closePath();
+  x.fillStyle = 'rgba(5,8,12,.55)'; x.fill('evenodd');
+  x.beginPath(); pts.forEach((p, i) => i ? x.lineTo(p.x, p.y) : x.moveTo(p.x, p.y)); x.closePath();
+  x.lineWidth = 2; x.strokeStyle = '#8099ff'; x.stroke();
+  pts.forEach((p, i) => {
+    x.beginPath(); x.arc(p.x, p.y, ed.drag === i ? 14 : 11, 0, Math.PI * 2);
+    x.fillStyle = 'rgba(255,255,255,.95)'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#2445d4'; x.stroke();
+  });
+}
+function edLoupe(p) {
+  const lp = $('edLoupe'), cv = $('edCanvas'), st = $('edStage'), dpr = cv.width / st.clientWidth, rad = 20;
+  const lx = lp.getContext('2d');
+  lx.fillStyle = '#000'; lx.fillRect(0, 0, 240, 240);
+  lx.imageSmoothingQuality = 'high';
+  lx.drawImage(ed.base, (p.x - rad) * dpr, (p.y - rad) * dpr, 2 * rad * dpr, 2 * rad * dpr, 0, 0, 240, 240);
+  // the two page edges meeting at this corner, so the user can line them up
+  const i = ed.drag, pts = ed.quad.map(s2v), z = 240 / (2 * rad), toL = q => ({x: 120 + (q.x - p.x) * z, y: 120 + (q.y - p.y) * z});
+  if (i >= 0) {
+    lx.strokeStyle = '#8099ff'; lx.lineWidth = 3; lx.beginPath();
+    const a = toL(pts[(i + 3) % 4]), b = toL(pts[(i + 1) % 4]);
+    lx.moveTo(a.x, a.y); lx.lineTo(120, 120); lx.lineTo(b.x, b.y); lx.stroke();
+  }
+  lx.strokeStyle = '#ffffff'; lx.lineWidth = 2; lx.beginPath(); lx.moveTo(120, 100); lx.lineTo(120, 140); lx.moveTo(100, 120); lx.lineTo(140, 120); lx.stroke();
+  let top = p.y - 150; if (top < 8) top = p.y + 40;
+  lp.style.left = Math.min(st.clientWidth - 128, Math.max(8, p.x - 60)) + 'px'; lp.style.top = top + 'px';
+  lp.hidden = false;
+}
+function edModes() {
+  const box = $('edModes'); box.textContent = '';
+  [{v: null, name: 'Default look'}, ...MODES].forEach(m => {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = m.name;
+    b.setAttribute('aria-pressed', String(ed.mode === m.v));
+    b.onclick = () => { ed.mode = m.v; edModes(); };
+    box.appendChild(b);
+  });
+}
+function openEditor(it) {
+  ed.item = it; ed.rot = it.rot; ed.mode = it.mode || null; ed.drag = -1;
+  const s = it.src, ps = Math.min(1, 1800 / Math.max(s.width, s.height));
+  ed.prev = ps < 1 ? scaledCopy(s, Math.round(s.width * ps), Math.round(s.height * ps)) : s;
+  if (Array.isArray(it.quad)) ed.quad = it.quad.map(p => ({...p}));
+  else if (it.quad === 'full') ed.quad = fullQuad(s);
+  else { if (it.autoQuad === undefined) it.autoQuad = detectQuad(s); ed.quad = (it.autoQuad || fullQuad(s)).map(p => ({...p})); }
+  $('edHint').textContent = it.autoQuad || Array.isArray(it.quad) ? 'Drag the four corners onto the edges of the page.' : 'No page edge found. Drag the corners to crop.';
+  edModes();
+  $('editor').hidden = false; document.body.style.overflow = 'hidden';
+  requestAnimationFrame(edDraw);
+}
+function closeEditor() { $('editor').hidden = true; $('edLoupe').hidden = true; document.body.style.overflow = ''; ed.item = null; }
+(() => {
+  const cv = $('edCanvas');
+  const local = e => { const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; };
+  cv.addEventListener('pointerdown', e => {
+    if (!ed.item) return;
+    const p = local(e), pts = ed.quad.map(s2v);
+    let best = -1, bd = 44; // generous touch target
+    pts.forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = i; } });
+    if (best < 0) return;
+    ed.drag = best; ed.grab = {dx: pts[best].x - p.x, dy: pts[best].y - p.y};
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {} e.preventDefault();
+    edDraw(); edLoupe(pts[best]);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (ed.drag < 0) return;
+    const p = local(e), sp = {x: p.x + ed.grab.dx, y: p.y + ed.grab.dy};
+    ed.quad[ed.drag] = v2s(sp.x, sp.y);
+    edDraw(); edLoupe(s2v(ed.quad[ed.drag]));
+  });
+  const end = () => { if (ed.drag < 0) return; ed.drag = -1; $('edLoupe').hidden = true; edDraw(); };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  $('edAuto').onclick = () => {
+    if (ed.item.autoQuad === undefined) ed.item.autoQuad = detectQuad(ed.item.src);
+    if (ed.item.autoQuad) { ed.quad = ed.item.autoQuad.map(p => ({...p})); $('edHint').textContent = 'Page edges found. Adjust if needed.'; }
+    else $('edHint').textContent = 'No page edge found. Drag the corners to crop.';
+    edDraw();
+  };
+  $('edFull').onclick = () => { ed.quad = fullQuad(ed.item.src); edDraw(); };
+  $('edRot').onclick = () => { ed.rot = (ed.rot + 90) % 360; edDraw(); };
+  $('edCancel').onclick = closeEditor;
+  $('edDone').onclick = () => {
+    const it = ed.item, s = it.src, f = fullQuad(s);
+    const isFull = ed.quad.every((p, i) => Math.abs(p.x - f[i].x) < 2 && Math.abs(p.y - f[i].y) < 2);
+    it.quad = isFull ? 'full' : ed.quad.map(p => ({...p}));
+    it.rot = ed.rot; it.mode = ed.mode; it.cache.clear();
+    closeEditor(); buildTray(); schedule();
+  };
+  window.addEventListener('resize', () => { if (ed.item) edDraw(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && ed.item) closeEditor(); });
+})();
 
 /* ---------- export ---------- */
 const dlReady = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
@@ -946,7 +1164,7 @@ try {
 } catch (e) {}
 $('a2hsClose').onclick = () => { $('a2hs').hidden = true; try { localStorage.setItem('gridscan.a2hs', '1'); } catch (e) {} };
 
-if (location.hash === '#debug') window.__gs = {render, srcFor, detectPaper, background, items: () => items, state};
+if (location.hash === '#debug') window.__gs = {render, srcFor, detectQuad, warp, background, items: () => items, state};
 
 buildControls();
 makeSamples();
